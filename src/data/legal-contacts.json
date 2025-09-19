@@ -1,0 +1,132 @@
+[
+  {
+    "id": "dlsa-delhi",
+    "name": "Delhi State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "011-23380622",
+    "address": "Legal Services Building, Near District Court, Tis Hazari, Delhi - 110054",
+    "location": {
+      "lat": 28.6746,
+      "lng": 77.2218
+    },
+    "city": "Delhi",
+    "state": "Delhi"
+  },
+  {
+    "id": "dlsa-mumbai",
+    "name": "Maharashtra State Legal Services Authority",
+    "type": "DLSA", 
+    "phone": "022-22625151",
+    "address": "High Court Building, Bombay High Court, Fort, Mumbai - 400001",
+    "location": {
+      "lat": 18.9263,
+      "lng": 72.8302
+    },
+    "city": "Mumbai",
+    "state": "Maharashtra"
+  },
+  {
+    "id": "dlsa-bangalore",
+    "name": "Karnataka State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "080-22214216",
+    "address": "High Court Building, Attara Kacheri Road, Bangalore - 560001",
+    "location": {
+      "lat": 12.9716,
+      "lng": 77.5946
+    },
+    "city": "Bangalore",
+    "state": "Karnataka"
+  },
+  {
+    "id": "dlsa-kolkata",
+    "name": "West Bengal State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "033-22200052",
+    "address": "Calcutta High Court, Esplanade, Kolkata - 700001",
+    "location": {
+      "lat": 22.5726,
+      "lng": 88.3639
+    },
+    "city": "Kolkata", 
+    "state": "West Bengal"
+  },
+  {
+    "id": "dlsa-chennai",
+    "name": "Tamil Nadu State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "044-25340395",
+    "address": "High Court Buildings, Parry's Corner, Chennai - 600104",
+    "location": {
+      "lat": 13.0827,
+      "lng": 80.2707
+    },
+    "city": "Chennai",
+    "state": "Tamil Nadu"
+  },
+  {
+    "id": "dlsa-hyderabad",
+    "name": "Telangana State Legal Services Authority", 
+    "type": "DLSA",
+    "phone": "040-23452555",
+    "address": "High Court of Judicature, Nayapul, Hyderabad - 500004",
+    "location": {
+      "lat": 17.3850,
+      "lng": 78.4867
+    },
+    "city": "Hyderabad",
+    "state": "Telangana"
+  },
+  {
+    "id": "dlsa-pune",
+    "name": "District Legal Services Authority Pune",
+    "type": "DLSA", 
+    "phone": "020-26123456",
+    "address": "District Court Complex, Shivajinagar, Pune - 411005",
+    "location": {
+      "lat": 18.5204,
+      "lng": 73.8567
+    },
+    "city": "Pune",
+    "state": "Maharashtra"
+  },
+  {
+    "id": "dlsa-ahmedabad",
+    "name": "Gujarat State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "079-26582513",
+    "address": "High Court of Gujarat, Sola, Ahmedabad - 380060",
+    "location": {
+      "lat": 23.0225,
+      "lng": 72.5714
+    },
+    "city": "Ahmedabad", 
+    "state": "Gujarat"
+  },
+  {
+    "id": "dlsa-jaipur",
+    "name": "Rajasthan State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "0141-2227049",
+    "address": "High Court of Rajasthan, Jodhpur House, Jaipur - 302017",
+    "location": {
+      "lat": 26.9124,
+      "lng": 75.7873
+    },
+    "city": "Jaipur",
+    "state": "Rajasthan"
+  },
+  {
+    "id": "dlsa-lucknow",
+    "name": "Uttar Pradesh State Legal Services Authority",
+    "type": "DLSA",
+    "phone": "0522-2622155",
+    "address": "High Court Building, Lucknow - 226001",
+    "location": {
+      "lat": 26.8467,
+      "lng": 80.9462
+    },
+    "city": "Lucknow",
+    "state": "Uttar Pradesh"
+  }
+]
