@@ -1,5 +1,6 @@
 import { ClauseResult, ClauseType, RiskLevel, AudioExplanation } from '@/types'
 import { generateId } from './utils'
+import { geminiAnalyzer, GovernmentType } from './gemini-ai'
 
 interface ClassifierRule {
   type: ClauseType
@@ -233,6 +234,104 @@ const AUDIO_EXPLANATIONS: Record<ClauseType, Record<RiskLevel, AudioExplanation>
 }
 
 export class ClauseClassifier {
+  // Enhanced classification using Gemini AI
+  async classifyWithAI(
+    text: string, 
+    governmentType: GovernmentType = 'general'
+  ): Promise<{
+    clauses: ClauseResult[]
+    overallRiskScore: number
+    governmentCompliance: {
+      compliant: boolean
+      violations: string[]
+      recommendations: string[]
+    }
+    summary: string
+  }> {
+    try {
+      // Use Gemini AI for advanced analysis
+      const aiAnalysis = await geminiAnalyzer.analyzeLegalDocument(text, governmentType)
+      
+      // Also run local classification for comparison
+      const paragraphs = text.split('\n').filter(p => p.trim().length > 0)
+      const localResults = this.classifyText(paragraphs)
+      
+      // Merge results, preferring AI results but including local findings
+      const mergedClauses = this.mergeClassificationResults(aiAnalysis.clauses, localResults)
+      
+      return {
+        clauses: mergedClauses,
+        overallRiskScore: aiAnalysis.overallRiskScore,
+        governmentCompliance: aiAnalysis.governmentCompliance,
+        summary: aiAnalysis.summary
+      }
+    } catch (error) {
+      console.error('AI classification failed, falling back to local:', error)
+      // Fallback to local classification only
+      const paragraphs = text.split('\n').filter(p => p.trim().length > 0)
+      const localResults = this.classifyText(paragraphs)
+      
+      return {
+        clauses: localResults,
+        overallRiskScore: this.calculateOverallRiskScore(localResults),
+        governmentCompliance: {
+          compliant: true,
+          violations: [],
+          recommendations: ['AI analysis unavailable - manual review recommended']
+        },
+        summary: `Local analysis found ${localResults.length} potential issues. AI analysis unavailable.`
+      }
+    }
+  }
+
+  private mergeClassificationResults(
+    aiClauses: ClauseResult[],
+    localClauses: ClauseResult[]
+  ): ClauseResult[] {
+    const merged = [...aiClauses]
+    
+    // Add local clauses that weren't detected by AI
+    localClauses.forEach(localClause => {
+      const similar = aiClauses.find(aiClause => 
+        this.areSimilarClauses(aiClause.text, localClause.text)
+      )
+      
+      if (!similar) {
+        merged.push({
+          ...localClause,
+          reason: `[Local Detection] ${localClause.reason}`
+        })
+      }
+    })
+    
+    return merged
+  }
+
+  private areSimilarClauses(text1: string, text2: string): boolean {
+    // Simple similarity check - can be improved
+    const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim()
+    const norm1 = normalize(text1)
+    const norm2 = normalize(text2)
+    
+    // Check if one contains the other or if they overlap significantly
+    return norm1.includes(norm2.substring(0, 50)) || 
+           norm2.includes(norm1.substring(0, 50))
+  }
+
+  private calculateOverallRiskScore(clauses: ClauseResult[]): number {
+    if (clauses.length === 0) return 0
+    
+    let totalScore = 0
+    clauses.forEach(clause => {
+      const weight = clause.riskLevel === 'high' ? 30 : 
+                    clause.riskLevel === 'medium' ? 20 : 10
+      totalScore += weight * clause.confidence
+    })
+    
+    return Math.min(Math.round(totalScore / clauses.length), 100)
+  }
+
+  // Original local classification method
   classifyText(paragraphs: string[]): ClauseResult[] {
     const results: ClauseResult[] = []
 

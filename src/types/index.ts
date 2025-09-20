@@ -24,6 +24,8 @@ export interface ClauseResult {
   }
   riskLevel: RiskLevel
   reason: string
+  legalBasis?: string // Legal regulation violated
+  suggestion?: string // How to improve the clause
 }
 
 export type ClauseType = 
@@ -73,9 +75,25 @@ export interface OCRResult {
   }
 }
 
+// Government type for AI analysis
+export type GovernmentType = 'india' | 'us' | 'general'
+
+// Legal analysis result from AI
+export interface LegalAnalysisResult {
+  clauses: ClauseResult[]
+  overallRiskScore: number
+  governmentCompliance: {
+    compliant: boolean
+    violations: string[]
+    recommendations: string[]
+  }
+  summary: string
+}
+
 // App state types
 export interface AppSettings {
   language: Language
-  enableSupabaseUpload: boolean
+  enableFirebaseUpload: boolean
   enableGeolocation: boolean
+  governmentType: GovernmentType
 }
