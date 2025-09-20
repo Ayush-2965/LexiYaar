@@ -47,8 +47,8 @@ export class CameraService {
       })
 
       return this.video
-    } catch (error) {
-      console.error('Camera initialization error:', error)
+    } catch {
+      console.error('Camera initialization error:')
       throw new Error('Failed to access camera. Please check permissions.')
     }
   }

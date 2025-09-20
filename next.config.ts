@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  output: 'export',
 };
 
 const withPWA = require('next-pwa')({
