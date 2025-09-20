@@ -8,7 +8,8 @@ export interface OCRProgress {
 
 export class OCRService {
   private worker: Tesseract.Worker | null = null
-  private isInitializing: boolean = false
+  private isInitialized = false
+  private currentLang = 'eng'
 
   // Test if Tesseract is available
   static isAvailable(): boolean {
@@ -19,60 +20,65 @@ export class OCRService {
     }
   }
 
-  async initialize(): Promise<void> {
-    if (this.worker) return
-    if (this.isInitializing) {
-      // Wait for existing initialization
-      while (this.isInitializing) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
+  async initialize(lang: string = 'eng', onProgress?: (progress: number) => void): Promise<void> {
+    if (this.isInitialized && this.worker && this.currentLang === lang) {
+      console.log(`OCR worker for ${lang} already initialized.`)
       return
     }
 
-    this.isInitializing = true
+    // If worker exists but language is different, terminate it
+    if (this.worker) {
+      console.log(`Switching OCR language from ${this.currentLang} to ${lang}. Terminating existing worker.`)
+      await this.worker.terminate()
+      this.worker = null
+      this.isInitialized = false
+    }
     
+    this.currentLang = lang;
+    console.log(`Initializing OCR worker for language: ${lang}`)
+
     try {
-      console.log('Checking Tesseract availability...')
-      
-      if (!OCRService.isAvailable()) {
-        throw new Error('Tesseract.js is not available')
-      }
-      
-      console.log('Initializing OCR worker...')
-      
-      // Use English only to speed up initialization
-      this.worker = await Tesseract.createWorker('eng', 1, {
-        logger: (m) => {
-          console.log('OCR Worker:', m)
+      const onProgressCallback = onProgress || (() => {})
+      let lastReportedProgress = -1
+
+      this.worker = await Tesseract.createWorker(lang, 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            const progress = Math.round(m.progress * 100)
+            if (progress > lastReportedProgress) {
+              onProgressCallback(progress)
+              lastReportedProgress = progress
+            }
+          }
         },
-        // Add options to help with loading
-        workerPath: 'https://unpkg.com/tesseract.js@5.1.1/dist/worker.min.js',
-        langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-        corePath: 'https://unpkg.com/tesseract.js-core@5.1.0/tesseract-core-simd.wasm.js'
+        errorHandler: (err) => {
+          console.error("Tesseract worker error:", err);
+          this.terminate(); // Terminate worker on error
+        }
       })
 
-      await this.worker.setParameters({
-        tessedit_pageseg_mode: Tesseract.PSM.AUTO,
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?()[]{}"-_ ',
-      })
+      // No character whitelist for broader language support
       
-      console.log('OCR worker initialized successfully')
+      this.isInitialized = true
+      console.log(`OCR worker for ${lang} initialized successfully.`)
     } catch (error) {
-      console.error('Failed to initialize OCR worker:', error)
+      console.error(`Failed to initialize OCR worker for language ${lang}:`, error)
       this.worker = null
-      throw error
-    } finally {
-      this.isInitializing = false
+      this.isInitialized = false
+      throw new Error(`Could not initialize OCR service for language ${lang}.`)
     }
   }
 
   async extractText(
     imageFile: File | string,
+    lang: string = 'eng',
     onProgress?: (progress: OCRProgress) => void
   ): Promise<OCRResult> {
     try {
       console.log('Starting OCR text extraction...')
-      await this.initialize()
+      onProgress?.({ status: 'initializing', progress: 0 })
+      
+      await this.initialize(lang, (p) => onProgress?.({ status: 'initializing', progress: p/2 }))
 
       if (!this.worker) {
         throw new Error('OCR worker not initialized')
@@ -135,9 +141,10 @@ export class OCRService {
 
   async extractParagraphs(
     imageFile: File | string,
+    lang: string = 'eng',
     onProgress?: (progress: OCRProgress) => void
   ): Promise<{ paragraphs: string[], fullText: string, confidence: number }> {
-    const result = await this.extractText(imageFile, onProgress)
+    const result = await this.extractText(imageFile, lang, onProgress)
     
     // Split text into paragraphs
     const paragraphs = result.text
