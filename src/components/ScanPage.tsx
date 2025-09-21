@@ -1,15 +1,16 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next';
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Camera, Upload, X, RotateCcw, Check, ArrowLeft, Loader2, SwitchCamera, FileText } from 'lucide-react'
 import Button from './Button'
 import { ocrService, resizeImage, fileToDataURL, OCRProgress } from '@/lib/ocr'
 import { pdfProcessor } from '@/lib/pdf'
-import { franc } from 'franc-min'
+import { franc } from 'franc'
 import Image from 'next/image'
 import { Capacitor } from '@capacitor/core';
-import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { DocumentScanner } from '@capacitor-mlkit/document-scanner';
 
 interface CapturedImage {
   file?: File
@@ -20,6 +21,7 @@ interface CapturedImage {
 }
 
 export default function ScanPage() {
+  const { t } = useTranslation();
   const searchParams = useSearchParams()
   const router = useRouter()
   const mode = searchParams.get('mode') || 'camera'
@@ -38,6 +40,17 @@ export default function ScanPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  
+  // Debug effect to monitor state changes
+  useEffect(() => {
+    console.log('ScanPage state update:', {
+      cameraActive,
+      cameraReady,
+      currentCamera,
+      hasStream: !!streamRef.current,
+      capturedImagesCount: capturedImages.length
+    })
+  }, [cameraActive, cameraReady, currentCamera, capturedImages.length])
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -63,9 +76,16 @@ export default function ScanPage() {
     }
   }, [mode])
 
-  // Start camera stream
-  const startCamera = useCallback(async () => {
+  // Start camera stream - removed useCallback to prevent dependency issues
+  const startCamera = async () => {
+    // Prevent multiple camera initializations
+    if (streamRef.current) {
+      console.log('Camera already active, skipping initialization')
+      return
+    }
+    
     try {
+      console.log('Starting camera with facing mode:', currentCamera)
       setCameraActive(true)
       setCameraReady(false)
       setError(null)
@@ -83,47 +103,73 @@ export default function ScanPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadedmetadata = () => {
+          console.log('Camera ready')
           setCameraReady(true)
+        }
+        // Add error handling for video element
+        videoRef.current.onerror = (err) => {
+          console.error('Video element error:', err)
+          setError(t('failedToDisplayCamera'))
         }
       }
     } catch (err) {
-      setError('Failed to access camera. Please check permissions.')
+      setError(t('failedToAccessCamera'))
       setCameraActive(false)
       console.error('Camera error:', err)
     }
-  }, [currentCamera])
+  }
 
-  // Stop camera stream
-  const stopCamera = useCallback(() => {
+  // Stop camera stream - removed useCallback to prevent dependency issues
+  const stopCamera = () => {
+    console.log('Stopping camera')
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach(track => {
+        console.log('Stopping track:', track.kind, track.label)
+        track.stop()
+      })
       streamRef.current = null
     }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    
     setCameraActive(false)
     setCameraReady(false)
-  }, [])
+  }
 
-  // Switch camera
-  const switchCamera = useCallback(() => {
+  // Switch camera - removed useCallback to prevent dependency issues
+  const switchCamera = () => {
+    console.log('Switching camera from', currentCamera)
     setCurrentCamera(prev => prev === 'environment' ? 'user' : 'environment')
-  }, [])
+  }
 
-  // Capture from live stream
-  const captureFromStream = useCallback(() => {
-    if (!videoRef.current || !cameraReady) return
+  // Capture from live stream - removed useCallback to prevent dependency issues
+  const captureFromStream = () => {
+    if (!videoRef.current || !cameraReady) {
+      console.log('Cannot capture - camera not ready or video ref not available')
+      return
+    }
 
+    console.log('Capturing from camera stream')
     const canvas = document.createElement('canvas')
     const video = videoRef.current
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) {
+      console.error('Could not get canvas context')
+      return
+    }
 
     ctx.drawImage(video, 0, 0)
     
     canvas.toBlob((blob) => {
-      if (!blob) return
+      if (!blob) {
+        console.error('Could not create blob from canvas')
+        return
+      }
       
       const file = new File([blob], `scan_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.jpg`, {
         type: 'image/jpeg'
@@ -131,6 +177,7 @@ export default function ScanPage() {
       
       const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
       
+      console.log('Image captured successfully')
       setCapturedImages(prev => [...prev, {
         file,
         dataUrl,
@@ -140,15 +187,54 @@ export default function ScanPage() {
       
       stopCamera()
     }, 'image/jpeg', 0.9)
-  }, [cameraReady, stopCamera])
+  }
 
-  // Effect to restart camera when switching
+  // Effect to restart camera when switching (only when currentCamera changes)
   useEffect(() => {
-    if (cameraActive) {
-      stopCamera()
-      setTimeout(() => startCamera(), 100)
+    // Only restart if camera is already active and we have a stream to replace
+    if (cameraActive && streamRef.current) {
+      console.log('Restarting camera for camera switch to:', currentCamera)
+      
+      // Stop current stream
+      streamRef.current.getTracks().forEach(track => {
+        console.log('Stopping track for camera switch:', track.kind, track.label)
+        track.stop()
+      })
+      streamRef.current = null
+      setCameraReady(false)
+      
+      // Start new stream with new camera
+      const restartCamera = async () => {
+        try {
+          console.log('Getting new stream for camera:', currentCamera)
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: currentCamera,
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            }
+          })
+          
+          streamRef.current = stream
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream
+            videoRef.current.onloadedmetadata = () => {
+              console.log('Camera switched successfully to:', currentCamera)
+              setCameraReady(true)
+            }
+          }
+        } catch (err) {
+          setError(t('failedToSwitchCamera'))
+          setCameraActive(false)
+          console.error('Camera switch error:', err)
+        }
+      }
+      
+      // Add a small delay to ensure the previous stream is fully stopped
+      setTimeout(restartCamera, 200)
     }
-  }, [currentCamera, cameraActive, startCamera, stopCamera])
+  }, [currentCamera, cameraActive, t]) // Depend on currentCamera and cameraActive
 
   // Cleanup on unmount
   useEffect(() => {
@@ -186,15 +272,17 @@ export default function ScanPage() {
 
       try {
         if (pdfProcessor.isPDF(file)) {
-          // For PDFs, we'll just add the first page for now.
-          // A more advanced implementation could allow selecting which pages to import.
+          // For PDFs, convert all pages to images
           const pdfResult = await pdfProcessor.convertPDFToImages(file);
-          newImages.push({
-            file,
-            dataUrl: pdfResult.images[0],
-            name: file.name,
-            isPDF: true,
-            pageCount: pdfResult.pageCount
+          // Add each page as a separate image
+          pdfResult.images.forEach((imageData, index) => {
+            newImages.push({
+              file: index === 0 ? file : undefined, // Only store file reference for first page
+              dataUrl: imageData,
+              name: `${file.name} (Page ${index + 1})`,
+              isPDF: true,
+              pageCount: pdfResult.pageCount
+            });
           });
         } else {
           const dataUrl = await fileToDataURL(file);
@@ -239,9 +327,7 @@ export default function ScanPage() {
     setOcrProgress({ status: 'Initializing OCR...', progress: 0 });
 
     try {
-      const allParagraphs: string[] = [];
-      let totalConfidence = 0;
-      let imageCount = 0;
+      const pages = [];
       let detectedLang = 'eng';
 
       for (let i = 0; i < capturedImages.length; i++) {
@@ -263,7 +349,7 @@ export default function ScanPage() {
         // If auto-detect, run OCR in English first, then detect language from text
         let ocrResult;
         if (selectedLang === 'auto') {
-          ocrResult = await ocrService.extractParagraphs(fileToProcess, 'eng', (progress: OCRProgress) => {
+          ocrResult = await ocrService.extractParagraphs(fileToProcess, (progress: OCRProgress) => {
             const overallProgress = (i / capturedImages.length) * 100 + progress.progress / capturedImages.length;
             setOcrProgress({
               status: `[${i + 1}/${capturedImages.length}] ${progress.status}`,
@@ -274,13 +360,40 @@ export default function ScanPage() {
           const langCode = franc(ocrResult.fullText, { minLength: 10 });
           // Map franc code to tesseract code
           const francToTess: Record<string, string> = {
-            'eng': 'eng', 'hin': 'hin', 'ben': 'ben', 'guj': 'guj', 'mar': 'mar', 'kan': 'kan', 'mal': 'mal', 'tam': 'tam', 'tel': 'tel', 'pan': 'pan', 'ori': 'ori',
-            'spa': 'spa', 'fra': 'fra', 'deu': 'deu', 'cmn': 'chi_sim'
+            'eng': 'eng', // English
+            'hin': 'hin', // Hindi
+            'ben': 'ben', // Bengali
+            'guj': 'guj', // Gujarati
+            'mar': 'mar', // Marathi
+            'kan': 'kan', // Kannada
+            'mal': 'mal', // Malayalam
+            'tam': 'tam', // Tamil
+            'tel': 'tel', // Telugu
+            'pan': 'pan', // Punjabi
+            'ori': 'ori', // Odia
+            'asm': 'asm', // Assamese
+            'bod': 'bod', // Bodo
+            'doi': 'doi', // Dogri
+            'gom': 'gom', // Konkani
+            'kas': 'kas', // Kashmiri
+            'kok': 'kok', // Konkani (Devanagari)
+            'mai': 'mai', // Maithili
+            'mni': 'mni', // Manipuri
+            'nep': 'nep', // Nepali
+            'san': 'san', // Sanskrit
+            'snd': 'snd', // Sindhi
+            'sat': 'sat', // Santali
+            'urd': 'urd', // Urdu
+            // Other supported languages
+            'spa': 'spa', // Spanish
+            'fra': 'fra', // French
+            'deu': 'deu', // German
+            'cmn': 'chi_sim' // Chinese (Simplified)
           };
           detectedLang = francToTess[langCode] || 'eng';
           if (detectedLang !== 'eng') {
             // Re-run OCR with detected language for better accuracy
-            ocrResult = await ocrService.extractParagraphs(fileToProcess, detectedLang, (progress: OCRProgress) => {
+            ocrResult = await ocrService.extractParagraphs(fileToProcess, (progress: OCRProgress) => {
               const overallProgress = (i / capturedImages.length) * 100 + progress.progress / capturedImages.length;
               setOcrProgress({
                 status: `[${i + 1}/${capturedImages.length}] ${progress.status} (Detected: ${detectedLang})`,
@@ -289,7 +402,7 @@ export default function ScanPage() {
             });
           }
         } else {
-          ocrResult = await ocrService.extractParagraphs(fileToProcess, selectedLang, (progress: OCRProgress) => {
+          ocrResult = await ocrService.extractParagraphs(fileToProcess, (progress: OCRProgress) => {
             const overallProgress = (i / capturedImages.length) * 100 + progress.progress / capturedImages.length;
             setOcrProgress({
               status: `[${i + 1}/${capturedImages.length}] ${progress.status}`,
@@ -298,24 +411,23 @@ export default function ScanPage() {
           });
         }
 
-        allParagraphs.push(...ocrResult.paragraphs);
-        totalConfidence += ocrResult.confidence;
-        imageCount++;
+        // Store individual page data
+        pages.push({
+          image: image.dataUrl,
+          extractedText: ocrResult.fullText,
+          paragraphs: ocrResult.paragraphs,
+          confidence: ocrResult.confidence,
+          pageNumber: i + 1
+        });
       }
 
       setOcrProgress({ status: 'Processing results...', progress: 95 });
 
-      const averageConfidence = imageCount > 0 ? totalConfidence / imageCount : 0;
-
-      const combinedText = allParagraphs.join('\n\n');
-
       sessionStorage.setItem('lexiyaar-document', JSON.stringify({
-        image: capturedImages[0].dataUrl, // Use first image as preview
-        extractedText: combinedText,
-        paragraphs: allParagraphs,
-        confidence: averageConfidence,
+        pages: pages,
         filename: capturedImages.map(img => img.name).join(', '),
         processedAt: new Date().toISOString(),
+        totalPages: pages.length
       }));
 
       router.push('/document');
@@ -358,28 +470,35 @@ export default function ScanPage() {
     setCapturedImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Add this function to handle native/web camera
+  // Handle native/web camera - with better error handling and state management
   const handleNativeCameraCapture = async () => {
     try {
+      setError(null) // Clear any previous errors
+      
       if (Capacitor.isNativePlatform()) {
-        const photo = await CapacitorCamera.getPhoto({
-          quality: 90,
-          allowEditing: false,
-          resultType: CameraResultType.DataUrl,
-          source: CameraSource.Camera,
-        });
-        setCapturedImages(prev => [...prev, {
-          file: undefined,
-          dataUrl: typeof photo.dataUrl === 'string' ? photo.dataUrl : '',
-          name: `scan_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.jpg`,
-          isPDF: false
-        }]);
+        console.log('Using native document scanner')
+        const result = await DocumentScanner.scanDocument({});
+        if (result.scannedImages && result.scannedImages.length > 0) {
+          const newImages = result.scannedImages.map((imageData, index) => ({
+            file: undefined,
+            dataUrl: imageData,
+            name: `scan_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}_${index + 1}.jpg`,
+            isPDF: false
+          }));
+          setCapturedImages(prev => [...prev, ...newImages]);
+        }
       } else {
-        startCamera();
+        console.log('Using web camera')
+        // Make sure we're not already in camera mode
+        if (!cameraActive && !streamRef.current) {
+          await startCamera()
+        }
       }
     } catch (err) {
-      setError('Failed to capture image');
-      console.error('Camera error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to access camera'
+      setError(errorMessage)
+      console.error('Camera error:', err)
+      setCameraActive(false)
     }
   }
 
@@ -390,7 +509,7 @@ export default function ScanPage() {
           <ArrowLeft />
         </button>
         <h1 className="text-2xl font-bold text-white">
-          {mode === 'camera' ? 'Scan Document' : 'Upload Document'}
+          {mode === 'camera' ? t('scanDocument') : t('uploadDocument')}
         </h1>
         <div className="w-10"></div>
       </div>
@@ -402,14 +521,13 @@ export default function ScanPage() {
             <div className="flex flex-col items-center space-y-2">
               <FileText size={36} className="text-gray-400" />
               <p className="text-base font-medium text-white">
-                Select images or a PDF
+                {t('uploadDocument')}
               </p>
               <p className="text-xs text-gray-400">
-                You can upload multiple files at once.
+                {t('uploadMultipleFiles')}
               </p>
             </div>
           </div>
-          
           <input
             ref={fileInputRef}
             type="file"
@@ -425,16 +543,14 @@ export default function ScanPage() {
             className="w-full bg-blue-600 hover:bg-blue-700"
           >
             <Upload className="mr-2" />
-            Select File(s)
+            {t('uploadDocument')}
           </Button>
-          
           <div className="relative flex items-center justify-center">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-700"></div>
             </div>
-            <div className="relative bg-gray-800 px-4 text-sm text-gray-400">OR</div>
+            <div className="relative bg-gray-800 px-4 text-sm text-gray-400">{t('autoDetect')}</div>
           </div>
-
           <Button
             variant="secondary"
             size="lg"
@@ -442,7 +558,7 @@ export default function ScanPage() {
             className="w-full bg-green-600 hover:bg-green-700"
           >
             <Camera className="mr-2" />
-            Use Camera
+            {t('scanDocument')}
           </Button>
         </div>
       )}
@@ -495,7 +611,7 @@ export default function ScanPage() {
       {/* UI for displaying captured images */}
       {capturedImages.length > 0 && (
         <div className="mb-4 flex-grow overflow-y-auto">
-          <h3 className="text-base font-semibold mb-2">Preview</h3>
+          <h3 className="text-base font-semibold mb-2">{t('preview')}</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {capturedImages.map((image, index) => (
               <div key={index} className="relative group rounded-lg overflow-hidden border border-gray-700">
@@ -565,7 +681,7 @@ export default function ScanPage() {
           <div className="space-y-4">
              <div className="my-4">
               <label htmlFor="lang-select" className="block text-sm font-medium text-gray-400 mb-2">
-                Select Document Language
+                {t('selectLanguage')}
               </label>
               <select
                 id="lang-select"
@@ -573,36 +689,49 @@ export default function ScanPage() {
                 onChange={(e) => setSelectedLang(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="auto">Auto Detect</option>
-                <option value="eng">English</option>
-                <option value="hin">Hindi</option>
-                <option value="ben">Bangla (Bengali)</option>
-                <option value="guj">Gujarati</option>
-                <option value="mar">Marathi</option>
-                <option value="kan">Kannada</option>
-                <option value="mal">Malayalam</option>
-                <option value="tam">Tamil</option>
-                <option value="tel">Telugu</option>
-                <option value="pan">Punjabi</option>
-                <option value="ori">Odia</option>
-                <option value="spa">Spanish</option>
-                <option value="fra">French</option>
-                <option value="deu">German</option>
-                <option value="chi_sim">Chinese (Simplified)</option>
+                <option value="auto">{t('autoDetect')}</option>
+                <option value="eng">{t('english')}</option>
+                <option value="hin">{t('hindi')}</option>
+                <option value="ben">{t('bengali')}</option>
+                <option value="guj">{t('gujarati')}</option>
+                <option value="mar">{t('marathi')}</option>
+                <option value="kan">{t('kannada')}</option>
+                <option value="mal">{t('malayalam')}</option>
+                <option value="tam">{t('tamil')}</option>
+                <option value="tel">{t('telugu')}</option>
+                <option value="pan">{t('punjabi')}</option>
+                <option value="ori">{t('odia')}</option>
+                <option value="asm">{t('assamese')}</option>
+                <option value="bod">{t('bodo')}</option>
+                <option value="doi">{t('dogri')}</option>
+                <option value="gom">{t('konkani')}</option>
+                <option value="kas">{t('kashmiri')}</option>
+                <option value="kok">{t('konkani')}</option>
+                <option value="mai">{t('maithili')}</option>
+                <option value="mni">{t('manipuri')}</option>
+                <option value="nep">{t('nepali')}</option>
+                <option value="san">{t('sanskrit')}</option>
+                <option value="sind">{t('sindhi') || 'Sindhi'}</option>
+                <option value="sat">{t('santali')}</option>
+                <option value="urd">{t('urdu')}</option>
+                <option value="spa">{t('spanish')}</option>
+                <option value="fra">{t('french')}</option>
+                <option value="deu">{t('german')}</option>
+                <option value="chi_sim">{t('chinese')}</option>
               </select>
             </div>
             <Button onClick={processDocument} className="w-full bg-green-600 hover:bg-green-700 text-base py-3 md:py-4">
               <Check className="mr-2" />
-              Process Document
+              {t('processDocument')}
             </Button>
             <div className="flex space-x-2">
               <Button onClick={handleRetake} variant="secondary" className="w-full text-sm py-2">
                 <RotateCcw className="mr-2" />
-                Retake
+                {t('retake')}
               </Button>
                <Button onClick={() => fileInputRef.current?.click()} variant="secondary" className="w-full text-sm py-2">
                 <Upload className="mr-2" />
-                Add More
+                {t('addMore')}
               </Button>
             </div>
           </div>
