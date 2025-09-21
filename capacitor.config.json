@@ -1,0 +1,28 @@
+{
+  "appId": "com.example.app",
+  "appName": "LexiYaar",
+  "webDir": "out",
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 3000,
+      "launchAutoHide": true,
+      "backgroundColor": "#ffffff",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": true,
+      "androidSpinnerStyle": "large",
+      "iosSpinnerStyle": "small",
+      "spinnerColor": "#ff0000",
+      "splashFullScreen": true,
+      "splashImmersive": true
+    }
+  },
+  "android": {
+    "icon": "public/icons/logo.png",
+    "splash": "public/icons/logo.png"
+  },
+  "ios": {
+    "icon": "public/icons/logo.png",
+    "splash": "public/icons/logo.png"
+  }
+}
