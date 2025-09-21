@@ -27,8 +27,8 @@ LexiYaar uses cutting-edge AI technology to analyze rental agreements and other 
 - **PWA**: next-pwa with Workbox service worker
 - **Audio**: @capacitor-community/text-to-speech, Web Speech API
 - **Translation**: @capacitor-mlkit/translation for dynamic content
-- **Backend**: Supabase (optional, for data storage)
-- **Deployment**: Vercel/Netlify ready
+- **Backend**: FireStore (for data storage)
+- **Deployment**: Vercel
 
 ## 🚀 Quick Start
 
@@ -56,11 +56,6 @@ LexiYaar uses cutting-edge AI technology to analyze rental agreements and other 
    cp .env.example .env.local
    ```
 
-   Configure your environment variables:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   ```
 
 4. **Development Server**
    ```bash
@@ -92,7 +87,7 @@ LexiYaar uses cutting-edge AI technology to analyze rental agreements and other 
 
 ## 📦 Mobile App Development
 
-### Capacitor Setup (Recommended for Native Features)
+### Capacitor Setup
 
 1. **Install Capacitor CLI**
    ```bash
@@ -152,7 +147,7 @@ lexiyaar-pwa/
 │   │   ├── translation.ts  # ML Kit translation
 │   │   ├── tts.ts          # Text-to-speech service
 │   │   ├── pdf.ts          # PDF processing
-│   │   └── supabase.ts     # Database client
+│   │   └── firebase.ts     # Database client
 │   ├── types/              # TypeScript definitions
 │   └── data/               # Static data (DLSA contacts)
 ├── public/
@@ -259,7 +254,7 @@ lexiyaar-pwa/
 │   │   ├── translation.ts  # ML Kit translation
 │   │   ├── tts.ts          # Text-to-speech service
 │   │   ├── pdf.ts          # PDF processing
-│   │   └── supabase.ts     # Database client
+│   │   └── firebase.ts     # Database client
 │   ├── types/              # TypeScript definitions
 │   └── data/               # Static data (DLSA contacts)
 ├── public/
@@ -374,7 +369,7 @@ npx cap sync android
 npx cap open android
 ```
 
-## 📞 Support
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/Ayush-2965/LexiYaar/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/Ayush-2965/LexiYaar/discussions)
@@ -382,6 +377,6 @@ npx cap open android
 
 ---
 
-**Built with ❤️ for the Indian legal community**
+**Built with ❤️ by Team CODEFATHER**
 
-*Making legal documents accessible to everyone, one scan at a time.*
+
