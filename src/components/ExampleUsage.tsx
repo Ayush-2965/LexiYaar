@@ -98,8 +98,13 @@ LOCK-IN PERIOD: The tenant must stay for a minimum of 11 months. If the tenant l
 TERMINATION: The landlord can terminate this agreement at any time with 7 days notice, while the tenant must give 3 months notice.`
 
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">LexiYaar - Firebase & Gemini AI Integration Demo</h1>
+    <div className="min-h-screen bg-gray-100">
+      <header className="sticky top-0 z-30 w-full bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-xl backdrop-blur-md" style={{ WebkitBackdropFilter: 'blur(8px)' }}>
+        <div className="flex items-center px-4 py-3 gap-3">
+          <h1 className="text-lg sm:text-xl font-bold text-white flex-1">LexiYaar - Firebase & Gemini AI Integration Demo</h1>
+        </div>
+      </header>
+      <div className="p-4 max-w-4xl mx-auto">
       
       {/* Authentication Section */}
       <div className="bg-white rounded-lg shadow p-4 mb-4">
@@ -275,6 +280,7 @@ TERMINATION: The landlord can terminate this agreement at any time with 7 days n
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

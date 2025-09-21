@@ -88,7 +88,7 @@ export class CameraService {
           'image/jpeg',
           quality
         )
-      } catch (error) {
+      } catch {
         reject(new Error('Failed to capture photo'))
       }
     })

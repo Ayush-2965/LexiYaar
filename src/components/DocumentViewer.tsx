@@ -4,49 +4,87 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowLeft, Volume2, VolumeX, AlertCircle, CheckCircle, AlertTriangle, Download, ChevronUp, ChevronDown, Sparkles, Brain, RefreshCw } from 'lucide-react'
-import { useLanguage } from '@/lib/language-context'
+import { useTranslation } from 'react-i18next';
 import { clauseClassifier } from '@/lib/classifier'
 import { geminiAnalyzer } from '@/lib/gemini-ai'
 import { ttsService } from '@/lib/tts'
 import { ClauseResult, RiskLevel, ClauseType } from '@/types'
 import { formatDate } from '@/lib/utils'
+import { translationService } from '@/lib/translation'
 
-interface DocumentData {
+
+interface DocumentPage {
   image: string
   extractedText: string
   paragraphs: string[]
   confidence: number
+  pageNumber: number
+}
+
+interface DocumentData {
+  pages: DocumentPage[]
   filename: string
   processedAt: string
+  totalPages: number
 }
 
 interface BottomSheetProps {
-  clause: ClauseResult | null
-  onClose: () => void
-  language: 'hi' | 'en'
+  clause: ClauseResult | null;
+  onClose: () => void;
 }
 
-function BottomSheet({ clause, onClose, language }: BottomSheetProps) {
+function mapI18nToTTS(lang: string | undefined | null): 'en' | 'hi' {
+  if (typeof lang === 'string' && lang.startsWith('hi')) return 'hi';
+  return 'en';
+}
+
+function BottomSheet({ clause, onClose }: BottomSheetProps) {
+  const { t, i18n } = useTranslation();
+  const language = mapI18nToTTS(i18n.language);
   const [isExpanded, setIsExpanded] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [aiExplanation, setAiExplanation] = useState<string>('')
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false)
+  const [translatedExplanation, setTranslatedExplanation] = useState<string>('')
+
+  // Translate AI explanation when language changes
+  useEffect(() => {
+    const translateExplanation = async () => {
+      if (aiExplanation && aiExplanation !== t('aiExplanationUnavailable') && aiExplanation !== t('aiExplanationLoading')) {
+        try {
+          const currentLang = i18n.language.split('-')[0]; // Get language code without region
+          const translated = await translationService.translate({
+            text: aiExplanation,
+            targetLanguage: currentLang,
+            sourceLanguage: language === 'hi' ? 'hi' : 'en' // Assume AI generates in English or Hindi
+          });
+          setTranslatedExplanation(translated);
+        } catch (error) {
+          console.error('Translation error:', error);
+          setTranslatedExplanation(aiExplanation); // Fallback to original
+        }
+      } else {
+        setTranslatedExplanation(aiExplanation);
+      }
+    };
+
+    translateExplanation();
+  }, [aiExplanation, i18n.language, language, t]);
 
   // Get AI explanation for the clause
   const getAiExplanation = useCallback(async () => {
-    if (!clause || aiExplanation) return
-    
-    setIsLoadingExplanation(true)
+    if (!clause || aiExplanation) return;
+    setIsLoadingExplanation(true);
     try {
-      const explanation = await geminiAnalyzer.getDetailedExplanation(clause, language)
-      setAiExplanation(explanation)
+      const explanation = await geminiAnalyzer.getDetailedExplanation(clause, language);
+      setAiExplanation(explanation);
     } catch (error) {
-      console.error('Failed to get AI explanation:', error)
-      setAiExplanation(language === 'hi' ? 'AI व्याख्या उपलब्ध नहीं है।' : 'AI explanation not available.')
+      console.error('Failed to get AI explanation:', error);
+      setAiExplanation(t('aiExplanationUnavailable'));
     } finally {
-      setIsLoadingExplanation(false)
+      setIsLoadingExplanation(false);
     }
-  }, [clause, aiExplanation, language])
+  }, [clause, aiExplanation, language, t]);
 
   useEffect(() => {
     if (clause && isExpanded) {
@@ -55,24 +93,23 @@ function BottomSheet({ clause, onClose, language }: BottomSheetProps) {
   }, [clause, isExpanded, getAiExplanation])
 
   const playExplanation = async (type: 'whatItMeans' | 'whatLawSays' | 'aiExplanation') => {
-    if (!clause) return
-
-    setIsPlaying(true)
+    if (!clause) return;
+    setIsPlaying(true);
     try {
-      let text = ''
+      let text = '';
       if (type === 'aiExplanation') {
-        text = aiExplanation || (language === 'hi' ? 'AI व्याख्या लोड हो रही है...' : 'Loading AI explanation...')
+        text = translatedExplanation || aiExplanation || t('aiExplanationLoading');
       } else {
-        const explanation = clauseClassifier.getAudioExplanation(clause.type, clause.riskLevel)
-        text = explanation[type][language]
+        const explanation = clauseClassifier.getAudioExplanation(clause.type, clause.riskLevel);
+        text = explanation[type][language];
       }
-      await ttsService.speak(text, { lang: language, rate: 0.85 })
+      await ttsService.speak(text, { lang: language, rate: 0.85 });
     } catch (error) {
-      console.error('TTS Error:', error)
+      console.error('TTS Error:', error);
     } finally {
-      setIsPlaying(false)
+      setIsPlaying(false);
     }
-  }
+  };
 
   const getRiskIcon = (riskLevel: RiskLevel) => {
     switch (riskLevel) {
@@ -92,150 +129,156 @@ function BottomSheet({ clause, onClose, language }: BottomSheetProps) {
 
   const getClauseTypeLabel = (type: ClauseType) => {
     switch (type) {
-      case 'security_deposit': return language === 'hi' ? 'जमानत राशि' : 'Security Deposit'
-      case 'rent_hike': return language === 'hi' ? 'किराया वृद्धि' : 'Rent Increase'
-      case 'lock_in_penalty': return language === 'hi' ? 'लॉक-इन पेनल्टी' : 'Lock-in Penalty'
-      default: return language === 'hi' ? 'अन्य' : 'Other'
+      case 'security_deposit': return t('securityDeposit');
+      case 'rent_hike': return t('rentIncrease');
+      case 'lock_in_penalty': return t('lockInPenalty');
+      default: return t('other');
     }
-  }
+  };
 
-  if (!clause) return null
+  if (!clause) return null;
 
-  const explanation = clauseClassifier.getAudioExplanation(clause.type, clause.riskLevel)
+  const explanation = clauseClassifier.getAudioExplanation(clause.type, clause.riskLevel);
 
   return (
-    <div className="fixed inset-x-0 bottom-0 bg-white border-t border-gray-200 shadow-lg z-50 max-w-md mx-auto">
-      <div className="p-4">
-        {/* Handle */}
-        <div className="flex items-center justify-center mb-4">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-2 text-gray-400 hover:text-gray-600"
-          >
-            <div className="w-8 h-1 bg-gray-300 rounded-full"></div>
-            {isExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-          </button>
-          <button
-            onClick={onClose}
-            className="absolute right-4 text-gray-400 hover:text-gray-600"
-          >
-            ×
-          </button>
-        </div>
+    <div className="fixed inset-x-0 bottom-0 bg-white border-t border-gray-200 shadow-lg z-50 max-w-md mx-auto max-h-[90vh] overflow-hidden">
+      <div className="flex flex-col max-h-full">
+        <div className="p-4 flex-shrink-0">
+          {/* Handle */}
+          <div className="flex items-center justify-center mb-4">
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="flex items-center gap-2 text-gray-400 hover:text-gray-600"
+            >
+              <div className="w-8 h-1 bg-gray-300 rounded-full"></div>
+              {isExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            </button>
+            <button
+              onClick={onClose}
+              className="absolute right-4 text-gray-400 hover:text-gray-600"
+            >
+              ×
+            </button>
+          </div>
 
-        {/* Header */}
-        <div className={`p-4 rounded-lg border ${getRiskColor(clause.riskLevel)} mb-4`}>
-          <div className="flex items-start gap-3">
-            {getRiskIcon(clause.riskLevel)}
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="font-bold text-gray-800">{getClauseTypeLabel(clause.type)}</h3>
-                <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                  clause.riskLevel === 'high' ? 'bg-red-100 text-red-700' :
-                  clause.riskLevel === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-green-100 text-green-700'
-                }`}>
-                  {clause.riskLevel === 'high' ? (language === 'hi' ? 'उच्च जोखिम' : 'High Risk') :
-                   clause.riskLevel === 'medium' ? (language === 'hi' ? 'मध्यम जोखिम' : 'Medium Risk') :
-                   (language === 'hi' ? 'कम जोखिम' : 'Low Risk')}
-                </span>
+          {/* Header */}
+          <div className={`p-4 rounded-lg border ${getRiskColor(clause.riskLevel)} mb-4`}>
+            <div className="flex items-start gap-3">
+              {getRiskIcon(clause.riskLevel)}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-bold text-gray-800">{getClauseTypeLabel(clause.type)}</h3>
+                  <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                    clause.riskLevel === 'high' ? 'bg-red-100 text-red-700' :
+                    clause.riskLevel === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-green-100 text-green-700'
+                  }`}>
+                    {clause.riskLevel === 'high' ? t('highRisk') :
+                     clause.riskLevel === 'medium' ? t('mediumRisk') :
+                     t('lowRisk')}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600">{clause.reason}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {t('confidence')}: {Math.round(clause.confidence * 100)}%
+                </p>
               </div>
-              <p className="text-sm text-gray-600">{clause.reason}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                {language === 'hi' ? 'विश्वसनीयता' : 'Confidence'}: {Math.round(clause.confidence * 100)}%
-              </p>
             </div>
           </div>
         </div>
 
-        {/* Explanations */}
+        {/* Scrollable Content */}
         {isExpanded && (
-          <div className="space-y-4">
-            {/* What it means */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold text-blue-800">
-                  {language === 'hi' ? 'इसका क्या मतलब है?' : 'What does this mean?'}
-                </h4>
-                <button
-                  onClick={() => playExplanation('whatItMeans')}
-                  disabled={isPlaying}
-                  className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                >
-                  {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                </button>
-              </div>
-              <p className="text-sm text-blue-700">{explanation.whatItMeans[language]}</p>
-            </div>
-
-            {/* What law says */}
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold text-purple-800">
-                  {language === 'hi' ? 'कानून क्या कहता है?' : 'What does the law say?'}
-                </h4>
-                <button
-                  onClick={() => playExplanation('whatLawSays')}
-                  disabled={isPlaying}
-                  className="p-1 text-purple-600 hover:text-purple-800 disabled:opacity-50"
-                >
-                  {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                </button>
-              </div>
-              <p className="text-sm text-purple-700">{explanation.whatLawSays[language]}</p>
-            </div>
-
-            {/* AI Explanation */}
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold text-purple-800 flex items-center gap-2">
-                  <Sparkles size={16} className="text-purple-600" />
-                  {language === 'hi' ? 'AI विश्लेषण' : 'AI Analysis'}
-                </h4>
-                <button
-                  onClick={() => playExplanation('aiExplanation')}
-                  disabled={isPlaying}
-                  className="p-1 text-purple-600 hover:text-purple-800 disabled:opacity-50"
-                >
-                  {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                </button>
-              </div>
-              {aiExplanation ? (
-                <p className="text-sm text-purple-700 leading-relaxed">
-                  {aiExplanation}
-                </p>
-              ) : isLoadingExplanation ? (
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <RefreshCw size={14} className="animate-spin" />
-                  {language === 'hi' ? 'AI विश्लेषण लोड हो रहा है...' : 'Loading AI analysis...'}
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-4">
+              {/* What it means */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-blue-800">
+                    {t('whatDoesThisMean')}
+                  </h4>
+                  <button
+                    onClick={() => playExplanation('whatItMeans')}
+                    disabled={isPlaying}
+                    className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                  >
+                    {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  </button>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">
-                  {language === 'hi' ? 'विस्तृत जानकारी के लिए विस्तार करें' : 'Expand for detailed analysis'}
-                </p>
-              )}
-            </div>
+                <p className="text-sm text-blue-700">{explanation.whatItMeans[language]}</p>
+              </div>
 
-            {/* Original text */}
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h4 className="font-semibold text-gray-800 mb-2">
-                {language === 'hi' ? 'मूल पाठ' : 'Original Text'}
-              </h4>
-              <p className="text-sm text-gray-600 leading-relaxed">{clause.text}</p>
+              {/* What law says */}
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-purple-800">
+                    {t('whatDoesLawSay')}
+                  </h4>
+                  <button
+                    onClick={() => playExplanation('whatLawSays')}
+                    disabled={isPlaying}
+                    className="p-1 text-purple-600 hover:text-purple-800 disabled:opacity-50"
+                  >
+                    {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  </button>
+                </div>
+                <p className="text-sm text-purple-700">{explanation.whatLawSays[language]}</p>
+              </div>
+
+              {/* AI Explanation */}
+              <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-purple-800 flex items-center gap-2">
+                    <Sparkles size={16} className="text-purple-600" />
+                    {t('aiAnalysis')}
+                  </h4>
+                  <button
+                    onClick={() => playExplanation('aiExplanation')}
+                    disabled={isPlaying}
+                    className="p-1 text-purple-600 hover:text-purple-800 disabled:opacity-50"
+                  >
+                    {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  </button>
+                </div>
+                {translatedExplanation || aiExplanation ? (
+                  <p className="text-sm text-purple-700 leading-relaxed">
+                    {translatedExplanation || aiExplanation}
+                  </p>
+                ) : isLoadingExplanation ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <RefreshCw size={14} className="animate-spin" />
+                    {t('aiExplanationLoading')}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {t('aiExplanationUnavailable')}
+                  </p>
+                )}
+              </div>
+
+              {/* Original text */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-800 mb-2">
+                  {t('originalText')}
+                </h4>
+                <p className="text-sm text-gray-600 leading-relaxed">{clause.text}</p>
+              </div>
             </div>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }
 
 export default function DocumentViewer() {
-  const { language, t } = useLanguage()
-  const router = useRouter()
+  const { t, i18n } = useTranslation();
+  const language = mapI18nToTTS(i18n.language);
+  const router = useRouter();
   const [documentData, setDocumentData] = useState<DocumentData | null>(null)
   const [clauses, setClauses] = useState<ClauseResult[]>([])
   const [selectedClause, setSelectedClause] = useState<ClauseResult | null>(null)
+  const [currentPage, setCurrentPage] = useState(0)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isGeminiAnalyzing, setIsGeminiAnalyzing] = useState(false)
   const [geminiAnalysis, setGeminiAnalysis] = useState<{
@@ -248,6 +291,89 @@ export default function DocumentViewer() {
     }
     summary: string
   } | null>(null)
+  const [translatedSummary, setTranslatedSummary] = useState<string>('')
+  const [translatedViolations, setTranslatedViolations] = useState<string[]>([])
+  const [translatedRecommendations, setTranslatedRecommendations] = useState<string[]>([])
+
+  // Translate AI analysis summary when language changes
+  useEffect(() => {
+    const translateSummary = async () => {
+      if (geminiAnalysis?.summary && i18n.language !== 'en') {
+        try {
+          const currentLang = i18n.language.split('-')[0]; // Get language code without region
+          const translated = await translationService.translate({
+            text: geminiAnalysis.summary,
+            targetLanguage: currentLang,
+            sourceLanguage: 'en' // AI generates in English
+          });
+          setTranslatedSummary(translated);
+          } catch (error) {
+            console.error('Summary translation error:', error);
+            setTranslatedSummary(geminiAnalysis.summary); // Fallback to original
+          }
+      } else {
+        setTranslatedSummary(geminiAnalysis?.summary || '');
+      }
+    };
+
+    translateSummary();
+  }, [geminiAnalysis?.summary, i18n.language]);
+
+  // Translate violations and recommendations when language changes
+  useEffect(() => {
+    const translateContent = async () => {
+      if (geminiAnalysis && i18n.language !== 'en') {
+        const currentLang = i18n.language.split('-')[0];
+        
+        // Translate violations
+        if (geminiAnalysis.governmentCompliance.violations.length > 0) {
+          try {
+            const translated = await Promise.all(
+              geminiAnalysis.governmentCompliance.violations.map(violation =>
+                translationService.translate({
+                  text: violation,
+                  targetLanguage: currentLang,
+                  sourceLanguage: 'en'
+                }).catch(() => violation) // Fallback to original on error
+              )
+            );
+            setTranslatedViolations(translated);
+          } catch (error) {
+            console.error('Violations translation error:', error);
+            setTranslatedViolations(geminiAnalysis.governmentCompliance.violations);
+          }
+        } else {
+          setTranslatedViolations([]);
+        }
+
+        // Translate recommendations
+        if (geminiAnalysis.governmentCompliance.recommendations.length > 0) {
+          try {
+            const translated = await Promise.all(
+              geminiAnalysis.governmentCompliance.recommendations.map(rec =>
+                translationService.translate({
+                  text: rec,
+                  targetLanguage: currentLang,
+                  sourceLanguage: 'en'
+                }).catch(() => rec) // Fallback to original on error
+              )
+            );
+            setTranslatedRecommendations(translated);
+          } catch (error) {
+            console.error('Recommendations translation error:', error);
+            setTranslatedRecommendations(geminiAnalysis.governmentCompliance.recommendations);
+          }
+        } else {
+          setTranslatedRecommendations([]);
+        }
+      } else {
+        setTranslatedViolations(geminiAnalysis?.governmentCompliance.violations || []);
+        setTranslatedRecommendations(geminiAnalysis?.governmentCompliance.recommendations || []);
+      }
+    };
+
+    translateContent();
+  }, [geminiAnalysis, i18n.language]);
   const [analysisType, setAnalysisType] = useState<'basic' | 'ai'>('basic')
   const [riskFilter, setRiskFilter] = useState<RiskLevel | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -286,11 +412,15 @@ export default function DocumentViewer() {
     if (documentData && !analysisPerformed) {
       const analyze = async () => {
         setIsAnalyzing(true);
-        const basicResults = clauseClassifier.classifyText(documentData.paragraphs);
+        // Combine all paragraphs from all pages for analysis
+        const allParagraphs = documentData.pages.flatMap(page => page.paragraphs);
+        const basicResults = clauseClassifier.classifyText(allParagraphs);
         setClauses(basicResults);
         setIsAnalyzing(false);
         
-        await performGeminiAnalysis(documentData.extractedText);
+        // Combine all extracted text for AI analysis
+        const combinedText = documentData.pages.map(page => page.extractedText).join('\n\n--- Page Break ---\n\n');
+        await performGeminiAnalysis(combinedText);
         
         setAnalysisPerformed(true);
       };
@@ -312,8 +442,13 @@ export default function DocumentViewer() {
     const results = {
       filename: documentData.filename,
       processedAt: documentData.processedAt,
-      confidence: documentData.confidence,
-      extractedText: documentData.extractedText,
+      totalPages: documentData.totalPages,
+      pages: documentData.pages.map(page => ({
+        pageNumber: page.pageNumber,
+        confidence: page.confidence,
+        extractedText: page.extractedText,
+        paragraphs: page.paragraphs
+      })),
       clauses: clauses.map(clause => ({
         type: clause.type,
         riskLevel: clause.riskLevel,
@@ -368,76 +503,89 @@ export default function DocumentViewer() {
   const riskStats = getRiskStats()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50">
-      {/* Header */}
-      <header className="bg-red-600 text-white p-4 shadow-lg sticky top-0 z-40">
-        <div className="flex items-center gap-4 max-w-4xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-pink-50">
+      {/* Modern Header */}
+      <header className="sticky top-0 z-40 w-full bg-gradient-to-r from-red-600 to-red-700 text-white shadow-xl backdrop-blur-md" style={{ WebkitBackdropFilter: 'blur(8px)' }}>
+        <div className="relative flex items-center px-4 py-3 gap-3">
           <button
             onClick={() => router.push('/')}
-            className="flex items-center justify-center w-10 h-10 bg-red-700 hover:bg-red-800 rounded-lg transition-colors"
+            className="flex items-center justify-center w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full transition-all duration-200 backdrop-blur-sm border border-white/20 active:scale-95"
+            aria-label="Back"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={22} className="text-white" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold">Document Analysis</h1>
-            <p className="text-sm opacity-90">{documentData.filename}</p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={downloadResults}
-              className="p-2 bg-red-700 hover:bg-red-800 rounded-lg transition-colors"
-            >
-              <Download size={20} />
-            </button>
-          </div>
+          <h1 className="text-lg sm:text-xl font-bold text-white truncate flex-1">Document Analysis</h1>
+          <button
+            onClick={downloadResults}
+            className="flex items-center justify-center w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full transition-all duration-200 backdrop-blur-sm border border-white/20 active:scale-95"
+            aria-label="Download"
+          >
+            <Download size={20} className="text-white" />
+          </button>
+        </div>
+        <div className="px-4 pb-2">
+          <p className="text-xs text-red-100 truncate">{documentData.filename}</p>
         </div>
       </header>
 
       <div className="max-w-4xl mx-auto p-4 pb-32">
-        {/* Analysis Type Toggle */}
-        <div className="mb-6 bg-white rounded-xl p-4 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-800">Document Analysis</h2>
-            <div className="flex bg-gray-100 rounded-lg p-1">
+        {/* Modern Analysis Type Toggle */}
+        <div className="mb-8 bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/60">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <div className="p-2 bg-gradient-to-br from-red-500 to-red-600 rounded-lg">
+                  <Brain size={20} className="text-white" />
+                </div>
+                Document Analysis
+              </h2>
+              <p className="text-gray-600 mt-1">Choose your analysis method</p>
+            </div>
+            <div className="flex bg-gray-100 rounded-xl p-1.5 shadow-inner">
               <button
                 onClick={() => setAnalysisType('basic')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-5 py-3 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
                   analysisType === 'basic'
-                    ? 'bg-white text-red-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-800'
+                    ? 'bg-white text-red-600 shadow-lg transform scale-105'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
                 }`}
               >
+                <div className={`w-2 h-2 rounded-full transition-colors ${
+                  analysisType === 'basic' ? 'bg-red-500' : 'bg-gray-400'
+                }`}></div>
                 Basic Analysis
               </button>
               <button
                 onClick={() => setAnalysisType('ai')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                className={`px-5 py-3 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
                   analysisType === 'ai'
-                    ? 'bg-white text-red-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-800'
+                    ? 'bg-white text-red-600 shadow-lg transform scale-105'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
                 }`}
               >
-                <Brain size={16} />
+                <Brain size={16} className={analysisType === 'ai' ? 'text-red-500' : 'text-gray-400'} />
                 AI Analysis
-                {isGeminiAnalyzing && <RefreshCw size={14} className="animate-spin" />}
+                {isGeminiAnalyzing && <RefreshCw size={14} className="animate-spin text-red-500" />}
               </button>
             </div>
           </div>
 
           {/* Analysis Summary */}
           {analysisType === 'ai' && geminiAnalysis && (
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4 mb-4">
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-3 sm:p-4 mb-4">
               <div className="flex items-start gap-3">
-                <Sparkles className="text-purple-600 mt-1" size={20} />
-                <div>
-                  <h3 className="font-semibold text-purple-800 mb-2">AI Analysis Summary</h3>
-                  <p className="text-sm text-purple-700 mb-3">{geminiAnalysis.summary}</p>
-                  
-                  {/* Overall Risk Score */}
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-purple-800">Overall Risk:</span>
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                <Sparkles className="text-purple-600 mt-1 flex-shrink-0" size={20} />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-purple-800 mb-2 text-sm sm:text-base">AI Analysis Summary</h3>
+                  <p className="text-sm text-purple-700 mb-3 leading-relaxed break-words">
+                    {translatedSummary || geminiAnalysis.summary}
+                  </p>
+
+                  {/* Overall Risk Score - Responsive Layout */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-sm font-medium text-purple-800 whitespace-nowrap">Overall Risk:</span>
+                      <div className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium w-fit ${
                         geminiAnalysis.overallRiskScore >= 70 ? 'bg-red-100 text-red-700' :
                         geminiAnalysis.overallRiskScore >= 40 ? 'bg-yellow-100 text-yellow-700' :
                         'bg-green-100 text-green-700'
@@ -445,13 +593,13 @@ export default function DocumentViewer() {
                         {geminiAnalysis.overallRiskScore}% Risk
                       </div>
                     </div>
-                    
+
                     {/* Compliance Status */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-purple-800">Legal Compliance:</span>
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        geminiAnalysis.governmentCompliance.compliant 
-                          ? 'bg-green-100 text-green-700' 
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-sm font-medium text-purple-800 whitespace-nowrap">Legal Compliance:</span>
+                      <div className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium w-fit ${
+                        geminiAnalysis.governmentCompliance.compliant
+                          ? 'bg-green-100 text-green-700'
                           : 'bg-red-100 text-red-700'
                       }`}>
                         {geminiAnalysis.governmentCompliance.compliant ? 'Compliant' : 'Non-Compliant'}
@@ -461,13 +609,13 @@ export default function DocumentViewer() {
 
                   {/* Violations */}
                   {!geminiAnalysis.governmentCompliance.compliant && (
-                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="mt-3 p-2 sm:p-3 bg-red-50 border border-red-200 rounded-lg">
                       <h4 className="text-sm font-semibold text-red-800 mb-2">Legal Violations:</h4>
                       <ul className="space-y-1">
-                        {geminiAnalysis.governmentCompliance.violations.map((violation, index) => (
-                          <li key={index} className="text-xs text-red-700 flex items-start gap-2">
-                            <span className="text-red-500">•</span>
-                            {violation}
+                        {translatedViolations.map((violation, index) => (
+                          <li key={index} className="text-xs text-red-700 flex items-start gap-2 leading-relaxed">
+                            <span className="text-red-500 flex-shrink-0">•</span>
+                            <span className="break-words">{violation}</span>
                           </li>
                         ))}
                       </ul>
@@ -476,13 +624,13 @@ export default function DocumentViewer() {
 
                   {/* Recommendations */}
                   {geminiAnalysis.governmentCompliance.recommendations.length > 0 && (
-                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="mt-3 p-2 sm:p-3 bg-blue-50 border border-blue-200 rounded-lg">
                       <h4 className="text-sm font-semibold text-blue-800 mb-2">AI Recommendations:</h4>
                       <ul className="space-y-1">
-                        {geminiAnalysis.governmentCompliance.recommendations.map((rec, index) => (
-                          <li key={index} className="text-xs text-blue-700 flex items-start gap-2">
-                            <span className="text-blue-500">•</span>
-                            {rec}
+                        {translatedRecommendations.map((rec, index) => (
+                          <li key={index} className="text-xs text-blue-700 flex items-start gap-2 leading-relaxed">
+                            <span className="text-blue-500 flex-shrink-0">•</span>
+                            <span className="break-words">{rec}</span>
                           </li>
                         ))}
                       </ul>
@@ -493,39 +641,62 @@ export default function DocumentViewer() {
             </div>
           )}
         </div>
-        {/* Stats Overview */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        {/* Modern Stats Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <button
             onClick={() => setRiskFilter(riskFilter === 'high' ? null : 'high')}
-            className={`p-4 text-center rounded-lg transition-all ${
-              riskFilter === 'high' ? 'ring-2 ring-red-500 scale-105' : 'hover:scale-105'
-            } bg-red-50 border border-red-200`}
+            className={`group relative overflow-hidden bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-200 rounded-xl p-6 text-center transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+              riskFilter === 'high' ? 'ring-4 ring-red-300 scale-105 shadow-2xl' : ''
+            }`}
           >
-            <div className="text-2xl font-bold text-red-600">{riskStats.high}</div>
-            <div className="text-sm text-red-700">
-              {language === 'hi' ? 'उच्च जोखिम' : 'High Risk'}
+            <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <AlertCircle className="text-red-500" size={24} />
+                <div className="text-3xl font-bold text-red-600">{riskStats.high}</div>
+              </div>
+              <div className="text-sm font-semibold text-red-700">
+                {language === 'hi' ? 'उच्च जोखिम' : 'High Risk'}
+              </div>
+              <div className="text-xs text-red-600/70 mt-1">Critical Issues</div>
             </div>
           </button>
+          
           <button
             onClick={() => setRiskFilter(riskFilter === 'medium' ? null : 'medium')}
-            className={`p-4 text-center rounded-lg transition-all ${
-              riskFilter === 'medium' ? 'ring-2 ring-yellow-500 scale-105' : 'hover:scale-105'
-            } bg-yellow-50 border border-yellow-200`}
+            className={`group relative overflow-hidden bg-gradient-to-br from-yellow-50 to-yellow-100 border-2 border-yellow-200 rounded-xl p-6 text-center transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+              riskFilter === 'medium' ? 'ring-4 ring-yellow-300 scale-105 shadow-2xl' : ''
+            }`}
           >
-            <div className="text-2xl font-bold text-yellow-600">{riskStats.medium}</div>
-            <div className="text-sm text-yellow-700">
-              {language === 'hi' ? 'मध्यम जोखिम' : 'Medium Risk'}
+            <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-yellow-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <AlertTriangle className="text-yellow-500" size={24} />
+                <div className="text-3xl font-bold text-yellow-600">{riskStats.medium}</div>
+              </div>
+              <div className="text-sm font-semibold text-yellow-700">
+                {language === 'hi' ? 'मध्यम जोखिम' : 'Medium Risk'}
+              </div>
+              <div className="text-xs text-yellow-600/70 mt-1">Review Needed</div>
             </div>
           </button>
+          
           <button
             onClick={() => setRiskFilter(riskFilter === 'low' ? null : 'low')}
-            className={`p-4 text-center rounded-lg transition-all ${
-              riskFilter === 'low' ? 'ring-2 ring-green-500 scale-105' : 'hover:scale-105'
-            } bg-green-50 border border-green-200`}
+            className={`group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200 rounded-xl p-6 text-center transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+              riskFilter === 'low' ? 'ring-4 ring-green-300 scale-105 shadow-2xl' : ''
+            }`}
           >
-            <div className="text-2xl font-bold text-green-600">{riskStats.low}</div>
-            <div className="text-sm text-green-700">
-              {language === 'hi' ? 'कम जोखिम' : 'Low Risk'}
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <CheckCircle className="text-green-500" size={24} />
+                <div className="text-3xl font-bold text-green-600">{riskStats.low}</div>
+              </div>
+              <div className="text-sm font-semibold text-green-700">
+                {language === 'hi' ? 'कम जोखिम' : 'Low Risk'}
+              </div>
+              <div className="text-xs text-green-600/70 mt-1">Acceptable</div>
             </div>
           </button>
         </div>
@@ -534,13 +705,36 @@ export default function DocumentViewer() {
         <div className="grid md:grid-cols-2 gap-6">
           {/* Original Image */}
           <div className="bg-white rounded-xl p-6 shadow-lg">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">
-              {language === 'hi' ? 'मूल दस्तावेज़' : 'Original Document'}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800">
+                {language === 'hi' ? 'मूल दस्तावेज़' : 'Original Document'}
+              </h2>
+              {documentData && documentData.totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                    disabled={currentPage === 0}
+                    className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    ‹
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    {currentPage + 1} / {documentData.totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(Math.min(documentData.totalPages - 1, currentPage + 1))}
+                    disabled={currentPage === documentData.totalPages - 1}
+                    className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="border rounded-lg overflow-hidden">
               <Image
-                src={documentData.image}
-                alt="Original document"
+                src={documentData ? documentData.pages[currentPage].image : ''}
+                alt={`Document page ${currentPage + 1}`}
                 width={800}
                 height={600}
                 className="w-full h-auto"
@@ -548,55 +742,67 @@ export default function DocumentViewer() {
               />
             </div>
             <div className="mt-4 text-xs text-gray-500">
-              <p>{language === 'hi' ? 'संसाधित' : 'Processed'}: {formatDate(new Date(documentData.processedAt))}</p>
-              <p>{language === 'hi' ? 'OCR विश्वसनीयता' : 'OCR Confidence'}: {Math.round(documentData.confidence)}%</p>
+              <p>{language === 'hi' ? 'संसाधित' : 'Processed'}: {formatDate(new Date(documentData?.processedAt || ''))}</p>
+              <p>{language === 'hi' ? 'OCR विश्वसनीयता' : 'OCR Confidence'}: {Math.round(documentData?.pages[currentPage].confidence || 0)}%</p>
+              <p>{language === 'hi' ? 'पृष्ठ' : 'Page'}: {currentPage + 1} {language === 'hi' ? 'का' : 'of'} {documentData?.totalPages}</p>
             </div>
           </div>
 
           {/* Analyzed Text */}
           <div className="bg-white rounded-xl p-6 shadow-lg">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">
-              {language === 'hi' ? 'विश्लेषित पाठ' : 'Analyzed Text'}
-            </h2>
-            <div 
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800">
+                {language === 'hi' ? 'विश्लेषित पाठ' : 'Analyzed Text'}
+              </h2>
+              {documentData && documentData.totalPages > 1 && (
+                <div className="text-sm text-gray-600">
+                  Page {currentPage + 1} of {documentData.totalPages}
+                </div>
+              )}
+            </div>
+            <div
               ref={scrollContainerRef}
               className="max-h-96 overflow-y-auto border rounded-lg p-4 bg-gray-50"
             >
               {isAnalyzing ? (
                 <p className="text-center text-gray-500">Analyzing document...</p>
-              ) : documentData.paragraphs.map((paragraph, index) => {
-                // Find if this paragraph has any clauses
-                const paragraphClauses = clauses.filter(clause => 
-                  clause.text.includes(paragraph.substring(0, 100))
-                )
-                
-                return (
-                  <div key={index} className="mb-4 last:mb-0">
-                    <p className="text-sm text-gray-700 leading-relaxed mb-2">
-                      {paragraph}
-                    </p>
-                    {paragraphClauses.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {paragraphClauses.map((clause) => (
-                          <button
-                            key={clause.id}
-                            onClick={() => handleClauseClick(clause)}
-                            className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
-                              clause.riskLevel === 'high' ? 'bg-red-100 text-red-700 hover:bg-red-200' :
-                              clause.riskLevel === 'medium' ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' :
-                              'bg-green-100 text-green-700 hover:bg-green-200'
-                            }`}
-                          >
-                            {clause.riskLevel === 'high' ? '⚠️' :
-                             clause.riskLevel === 'medium' ? '⚡' : '✅'}
-                            {clause.type.replace('_', ' ')}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              ) : documentData ? (
+                documentData.pages[currentPage].paragraphs.map((paragraph: string, index: number) => {
+                  // Find if this paragraph has any clauses
+                  const paragraphClauses = clauses.filter(clause =>
+                    clause.text.includes(paragraph.substring(0, 100))
+                  )
+
+                  return (
+                    <div key={index} className="mb-4 last:mb-0">
+                      <p className="text-sm text-gray-700 leading-relaxed mb-2">
+                        {paragraph}
+                      </p>
+                      {paragraphClauses.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {paragraphClauses.map((clause) => (
+                            <button
+                              key={clause.id}
+                              onClick={() => handleClauseClick(clause)}
+                              className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
+                                clause.riskLevel === 'high' ? 'bg-red-100 text-red-700 hover:bg-red-200' :
+                                clause.riskLevel === 'medium' ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' :
+                                'bg-green-100 text-green-700 hover:bg-green-200'
+                              }`}
+                            >
+                              {clause.riskLevel === 'high' ? '⚠️' :
+                               clause.riskLevel === 'medium' ? '⚡' : '✅'}
+                              {clause.type.replace('_', ' ')}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-center text-gray-500">No document data available</p>
+              )}
             </div>
           </div>
         </div>
@@ -685,7 +891,6 @@ export default function DocumentViewer() {
       <BottomSheet
         clause={selectedClause}
         onClose={closeBottomSheet}
-        language={language}
       />
 
       {/* Risk Details Modal */}
